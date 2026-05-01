@@ -14,7 +14,6 @@ import (
 var version = "dev"
 
 const (
-	boldBlue  = "\033[1;34m"
 	lightBlue = "\033[0;94m"
 	dim       = "\033[2m"
 	yellow    = "\033[0;33m"
@@ -161,7 +160,7 @@ func main() {
 	}
 	if in.ContextWindow.ContextWindowSize > 0 {
 		pct := int(math.Round(in.ContextWindow.UsedPercentage))
-		usedK := in.ContextWindow.TotalInputTokens / 1000
+		usedK := int64(float64(in.ContextWindow.ContextWindowSize)*in.ContextWindow.UsedPercentage/100) / 1000
 		winK := fmtWinK(in.ContextWindow.ContextWindowSize)
 		color := ""
 		if pct > 75 {
@@ -170,24 +169,21 @@ func main() {
 		out.WriteString(sep + fmt.Sprintf("%sctx: %d/%s (%d%%)%s", color, usedK, winK, pct, reset))
 	}
 
-	if in.RateLimits.FiveHour.UsedPercentage > 0 || in.RateLimits.SevenDay.UsedPercentage > 0 {
-		out.WriteString(dim + " · " + reset)
-		if in.RateLimits.FiveHour.UsedPercentage > 0 {
-			s := int(math.Round(in.RateLimits.FiveHour.UsedPercentage))
-			color := ""
-			if s >= 80 {
-				color = yellow
-			}
-			out.WriteString(fmt.Sprintf("%ssession: %d%%%s", color, s, reset))
+	if in.RateLimits.FiveHour.UsedPercentage > 0 {
+		s := int(math.Round(in.RateLimits.FiveHour.UsedPercentage))
+		color := ""
+		if s >= 80 {
+			color = yellow
 		}
-		if in.RateLimits.SevenDay.UsedPercentage > 0 {
-			w := int(math.Round(in.RateLimits.SevenDay.UsedPercentage))
-			color := ""
-			if w >= 80 {
-				color = yellow
-			}
-			out.WriteString(dim + " · " + reset + fmt.Sprintf("%sweek: %d%%%s", color, w, reset))
+		out.WriteString(dim + " · " + reset + fmt.Sprintf("%ssession: %d%%%s", color, s, reset))
+	}
+	if in.RateLimits.SevenDay.UsedPercentage > 0 {
+		w := int(math.Round(in.RateLimits.SevenDay.UsedPercentage))
+		color := ""
+		if w >= 80 {
+			color = yellow
 		}
+		out.WriteString(dim + " · " + reset + fmt.Sprintf("%sweek: %d%%%s", color, w, reset))
 	}
 
 	if r := fmtReset(in.RateLimits.FiveHour.ResetsAt); r != "" {
