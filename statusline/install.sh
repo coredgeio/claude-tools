@@ -33,19 +33,45 @@ else
 fi
 chmod +x "${INSTALL_DIR}/${BINARY}"
 
-# patch settings.json
+# patch settings.json — always sets both type and command (idempotent)
 COMMAND="${INSTALL_DIR}/${BINARY}"
-if command -v jq &>/dev/null; then
-  if [ -f "$SETTINGS" ]; then
-    tmp=$(mktemp)
-    jq --arg cmd "$COMMAND" '.statusLine.command = $cmd' "$SETTINGS" > "$tmp"
+patch_settings_jq() {
+  local tmp
+  tmp=$(mktemp)
+  if jq --arg cmd "$COMMAND" '.statusLine = {"type": "command", "command": $cmd}' "$SETTINGS" > "$tmp" 2>/dev/null; then
     mv "$tmp" "$SETTINGS"
   else
-    echo "{\"statusLine\":{\"command\":\"${COMMAND}\"}}" > "$SETTINGS"
+    rm -f "$tmp"
+    return 1
   fi
+}
+
+patch_settings_python() {
+  python3 - "$SETTINGS" "$COMMAND" <<'EOF'
+import json, sys
+path, cmd = sys.argv[1], sys.argv[2]
+try:
+    with open(path) as f:
+        data = json.load(f)
+except (FileNotFoundError, json.JSONDecodeError):
+    data = {}
+data['statusLine'] = {'type': 'command', 'command': cmd}
+with open(path, 'w') as f:
+    json.dump(data, f, indent=2)
+    f.write('\n')
+EOF
+}
+
+if [ ! -f "$SETTINGS" ]; then
+  printf '{"statusLine":{"type":"command","command":"%s"}}\n' "$COMMAND" > "$SETTINGS"
+elif command -v jq &>/dev/null && patch_settings_jq; then
+  :
+elif command -v python3 &>/dev/null && patch_settings_python; then
+  :
 else
-  echo "Warning: jq not found. Add this to ${SETTINGS} manually:"
-  echo "  \"statusLine\": { \"command\": \"${COMMAND}\" }"
+  echo "Warning: could not patch ${SETTINGS} automatically."
+  echo "Add this manually:"
+  echo '  "statusLine": { "type": "command", "command": "'"${COMMAND}"'" }'
 fi
 
 echo "Installed to ${INSTALL_DIR}/${BINARY}"
