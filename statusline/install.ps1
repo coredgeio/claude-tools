@@ -20,17 +20,20 @@ Write-Host "Downloading $Asset..."
 New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
 Invoke-WebRequest -Uri $Url -OutFile $Dest
 
-# patch settings.json
+# patch settings.json — always sets both type and command (idempotent)
 $Command = $Dest -replace "\\", "/"
+$statusLine = [ordered]@{ type = "command"; command = $Command }
+
 if (Test-Path $Settings) {
-    $json = Get-Content $Settings -Raw | ConvertFrom-Json
-    if (-not $json.statusLine) {
-        $json | Add-Member -MemberType NoteProperty -Name "statusLine" -Value @{}
+    try {
+        $json = Get-Content $Settings -Raw | ConvertFrom-Json
+    } catch {
+        $json = [PSCustomObject]@{}
     }
-    $json.statusLine.command = $Command
-    $json | ConvertTo-Json -Depth 10 | Set-Content $Settings
+    $json | Add-Member -MemberType NoteProperty -Name "statusLine" -Value $statusLine -Force
+    $json | ConvertTo-Json -Depth 10 | Set-Content $Settings -Encoding UTF8
 } else {
-    @{ statusLine = @{ command = $Command } } | ConvertTo-Json -Depth 10 | Set-Content $Settings
+    [PSCustomObject]@{ statusLine = $statusLine } | ConvertTo-Json -Depth 10 | Set-Content $Settings -Encoding UTF8
 }
 
 Write-Host "Installed to $Dest"
