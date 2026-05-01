@@ -42,7 +42,8 @@ jobs:
           EXT=""
           [ "$GOOS" = "windows" ] && EXT=".exe"
           go build \
-            -ldflags "-X main.version=${GITHUB_SHA::8}" \
+            -ldflags "-s -w -X main.version=${GITHUB_SHA::8}" \
+            -trimpath \
             -o "../dist/claudeline-${{ matrix.goos }}-${{ matrix.goarch }}${EXT}" \
             .
 
