@@ -8,15 +8,17 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"time"
 )
 
 var version = "dev"
 
 const (
-	boldBlue = "\033[1;34m"
-	dim      = "\033[2m"
-	yellow   = "\033[0;33m"
-	reset    = "\033[0m"
+	boldBlue  = "\033[1;34m"
+	lightBlue = "\033[0;94m"
+	dim       = "\033[2m"
+	yellow    = "\033[0;33m"
+	reset     = "\033[0m"
 )
 
 type statusInput struct {
@@ -35,9 +37,11 @@ type statusInput struct {
 	RateLimits struct {
 		FiveHour struct {
 			UsedPercentage float64 `json:"used_percentage"`
+			ResetsAt       int64   `json:"resets_at"`
 		} `json:"five_hour"`
 		SevenDay struct {
 			UsedPercentage float64 `json:"used_percentage"`
+			ResetsAt       int64   `json:"resets_at"`
 		} `json:"seven_day"`
 	} `json:"rate_limits"`
 	Cost struct {
@@ -94,6 +98,22 @@ func gitInfo(cwd string) string {
 	return fmt.Sprintf(" (%s%s)", branch, dirty)
 }
 
+func fmtReset(unix int64) string {
+	if unix == 0 {
+		return ""
+	}
+	remaining := time.Until(time.Unix(unix, 0))
+	if remaining <= 0 {
+		return ""
+	}
+	h := int(remaining.Hours())
+	m := int(remaining.Minutes()) % 60
+	if h > 0 {
+		return fmt.Sprintf("%dh %dm", h, m)
+	}
+	return fmt.Sprintf("%dm", m)
+}
+
 func fmtWinK(n int64) string {
 	if n >= 1000 {
 		return fmt.Sprintf("%dk", n/1000)
@@ -127,24 +147,18 @@ func main() {
 	sep := dim + " | " + reset
 	var out strings.Builder
 
-	// cwd
-	out.WriteString(boldBlue + shortenPath(cwd) + reset)
-
-	// git branch + dirty
-	out.WriteString(gitInfo(cwd))
-
-	// model
+	cwdShort := shortenPath(cwd)
+	gitStr := gitInfo(cwd)
 	model := in.Model.DisplayName
 	if model == "" {
 		model = in.Model.ID
 	}
+
+	out.WriteString(lightBlue + cwdShort + reset)
+	out.WriteString(gitStr)
 	if model != "" {
 		out.WriteString(" " + dim + model + reset)
 	}
-
-	out.WriteString(sep)
-
-	// context window
 	if in.ContextWindow.ContextWindowSize > 0 {
 		pct := int(math.Round(in.ContextWindow.UsedPercentage))
 		usedK := in.ContextWindow.TotalInputTokens / 1000
@@ -153,39 +167,31 @@ func main() {
 		if pct > 75 {
 			color = yellow
 		}
-		out.WriteString(fmt.Sprintf("%sctx: %d/%s (%d%%)%s", color, usedK, winK, pct, reset))
+		out.WriteString(sep + fmt.Sprintf("%sctx: %d/%s (%d%%)%s", color, usedK, winK, pct, reset))
 	}
 
-	// rate limits (subscription only)
-	var sessStr, weekStr string
-	if in.RateLimits.FiveHour.UsedPercentage > 0 {
-		s := int(math.Round(in.RateLimits.FiveHour.UsedPercentage))
-		color := ""
-		if s >= 80 {
-			color = yellow
+	if in.RateLimits.FiveHour.UsedPercentage > 0 || in.RateLimits.SevenDay.UsedPercentage > 0 {
+		out.WriteString(dim + " · " + reset)
+		if in.RateLimits.FiveHour.UsedPercentage > 0 {
+			s := int(math.Round(in.RateLimits.FiveHour.UsedPercentage))
+			color := ""
+			if s >= 80 {
+				color = yellow
+			}
+			out.WriteString(fmt.Sprintf("%ssession: %d%%%s", color, s, reset))
 		}
-		sessStr = fmt.Sprintf("%ssession: %d%%%s", color, s, reset)
-	}
-	if in.RateLimits.SevenDay.UsedPercentage > 0 {
-		w := int(math.Round(in.RateLimits.SevenDay.UsedPercentage))
-		color := ""
-		if w >= 80 {
-			color = yellow
-		}
-		weekStr = fmt.Sprintf("%sweek: %d%%%s", color, w, reset)
-	}
-	if sessStr != "" || weekStr != "" {
-		out.WriteString(sep)
-		if sessStr != "" && weekStr != "" {
-			out.WriteString(sessStr + dim + " · " + reset + weekStr)
-		} else {
-			out.WriteString(sessStr + weekStr)
+		if in.RateLimits.SevenDay.UsedPercentage > 0 {
+			w := int(math.Round(in.RateLimits.SevenDay.UsedPercentage))
+			color := ""
+			if w >= 80 {
+				color = yellow
+			}
+			out.WriteString(dim + " · " + reset + fmt.Sprintf("%sweek: %d%%%s", color, w, reset))
 		}
 	}
 
-	// cost estimate
-	if in.Cost.TotalCostUSD > 0 {
-		out.WriteString(fmt.Sprintf("%s$%.2f", sep, in.Cost.TotalCostUSD))
+	if r := fmtReset(in.RateLimits.FiveHour.ResetsAt); r != "" {
+		out.WriteString(dim + " · resets in " + r + reset)
 	}
 
 	out.WriteString("\n")
